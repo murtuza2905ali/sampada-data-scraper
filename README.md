@@ -30,7 +30,7 @@ It handles **automatic login**, **CAPTCHA solving via OCR**, **data extraction**
 ### 1. 🔽 Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/sampada-automation.git
+git clone https://github.com/murtuza2905ali/sampada-data-scraper
 cd sampada-automation
 2. 📦 Install Python Dependencies
 ```bash
