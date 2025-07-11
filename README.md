@@ -31,7 +31,7 @@ It handles **automatic login**, **CAPTCHA solving via OCR**, **data extraction**
 
 ```bash
 git clone https://github.com/murtuza2905ali/sampada-data-scraper
-cd sampada-automation
+cd sampada-data-scraper
 2. 📦 Install Python Dependencies
 ```bash
 pip install django selenium pillow pytesseract pandas openpyxl
