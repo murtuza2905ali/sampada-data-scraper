@@ -42,13 +42,14 @@ def trigger_scrape(request):
             options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
 
             # ✅ Launch Chrome with undetected_chromedriver
-            driver = uc.Chrome(options=options)
+            driver = uc.Chrome(options=options, headless=True)
 
             driver.get("https://sampada.mpigr.gov.in/#/clogin")
             WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.ID, "username"))
             )
 
+            # ✅ Try switching to English
             try:
                 lang_switch = driver.find_element(By.XPATH, "//a[contains(text(), 'English')]")
                 lang_switch.click()
@@ -58,6 +59,17 @@ def trigger_scrape(request):
                 time.sleep(2)
             except:
                 pass
+
+            # 👇 Yahan se aapka existing scraping logic continue kare
+            return render(request, "trigger_scrape.html", {
+                "message": "✅ Chrome with undetected_chromedriver started successfully!"
+            })
+
+        except Exception as e:
+            return render(request, "trigger_scrape.html", {
+                "message": f"Error: {str(e)}\n{traceback.format_exc()}"
+            })
+
 
             # 👇 ab tumhara scraping logic continue karo
 
