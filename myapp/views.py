@@ -1,6 +1,6 @@
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
-import undetected_chromedriver as uc   # ✅ instead of normal selenium driver
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -12,8 +12,6 @@ import pandas as pd
 from io import BytesIO
 import traceback
 import tempfile
-import shutil
-import os
 
 
 @csrf_exempt
@@ -31,9 +29,6 @@ def trigger_scrape(request):
 
         try:
             options = uc.ChromeOptions()
-
-            # ✅ Render-safe Chrome options
-            options.binary_location = shutil.which("chromium") or "/usr/bin/chromium"
             options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -41,11 +36,8 @@ def trigger_scrape(request):
             options.add_argument("--disable-software-rasterizer")
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--window-size=1920,1080")
-
-            # ✅ unique Chrome profile for every request
             options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
 
-            # ✅ Launch Chrome with undetected_chromedriver
             driver = uc.Chrome(options=options)
 
             driver.get("https://sampada.mpigr.gov.in/#/clogin")
@@ -53,7 +45,6 @@ def trigger_scrape(request):
                 EC.presence_of_element_located((By.ID, "username"))
             )
 
-            # ✅ Try switching to English
             try:
                 lang_switch = driver.find_element(By.XPATH, "//a[contains(text(), 'English')]")
                 lang_switch.click()
@@ -64,10 +55,63 @@ def trigger_scrape(request):
             except:
                 pass
 
-            # 👇 Yahan se aapka existing scraping logic continue kare
-            return render(request, "trigger_scrape.html", {
-                "message": "✅ Chrome with undetected_chromedriver started successfully!"
-            })
+            success = False  # ✅ properly initialized
+
+            for attempt in range(20):
+                try:
+                    print(f"🔁 Attempt {attempt + 1}")
+
+                    # Fill username & password
+                    driver.find_element(By.ID, "username").clear()
+                    driver.find_element(By.ID, "username").send_keys(username)
+                    driver.find_element(By.ID, "password").clear()
+                    driver.find_element(By.ID, "password").send_keys(password)
+
+                    # Solve captcha
+                    captcha_img = driver.find_element(By.XPATH, "//img[contains(@src, 'data:image')]").get_attribute("src")
+                    base64_img = captcha_img.split(",")[1]
+                    image_bytes = base64.b64decode(base64_img)
+                    image = Image.open(BytesIO(image_bytes))
+
+                    captcha_text = pytesseract.image_to_string(
+                        image,
+                        config='--psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+                    ).strip().replace(" ", "")
+                    print(" CAPTCHA Text:", captcha_text)
+
+                    captcha_input = driver.find_element(By.ID, "captchaStr")
+                    captcha_input.clear()
+                    captcha_input.send_keys(captcha_text)
+
+                    driver.find_element(By.XPATH, "//button[.//span[text()='Login']]").click()
+
+                    # Wait until login completes
+                    WebDriverWait(driver, 20).until(
+                        EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Search/Certified Copy')]"))
+                    )
+
+                    print("✅ Login successful!")
+                    success = True
+                    break
+
+                except Exception as e:
+                    print(" Error in attempt:", e)
+                    traceback.print_exc()
+                    continue
+
+            if success:
+                # 👇 Yahan scraping logic continue kare
+                print("Proceeding with scraping...")
+
+                # TODO: Add scraping steps here
+
+                return render(request, "trigger_scrape.html", {
+                    "message": "✅ Login successful and scraping started!"
+                })
+            else:
+                return render(request, "trigger_scrape.html", {
+                    "message": "❌ Failed to login after multiple attempts."
+                })
 
         except Exception as e:
             return render(request, "trigger_scrape.html", {
@@ -75,6 +119,7 @@ def trigger_scrape(request):
                 "traceback": traceback.format_exc()
             })
 
+    return render(request, "trigger_scrape.html")
             for attempt in range(20):
                 try:
                     print(f"🔁 Attempt {attempt + 1}")
