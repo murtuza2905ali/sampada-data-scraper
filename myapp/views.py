@@ -13,6 +13,7 @@ import pandas as pd
 from io import BytesIO
 import traceback
 import tempfile
+import os   # ✅ Added for environment variable support
 
 
 @csrf_exempt
@@ -43,7 +44,14 @@ def trigger_scrape(request):
             # ✅ unique Chrome profile for every request to avoid session conflict
             options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
 
-            driver = webdriver.Chrome(options=options)
+            # ✅ Force Chrome binary path (Render build script sets this env var)
+            chrome_bin = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/google-chrome")
+            options.binary_location = chrome_bin
+
+            # ✅ Set Chromedriver path (Render build script installs this)
+            driver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+
+            driver = webdriver.Chrome(executable_path=driver_path, options=options)
 
             driver.get("https://sampada.mpigr.gov.in/#/clogin")
             WebDriverWait(driver, 20).until(
@@ -59,6 +67,7 @@ def trigger_scrape(request):
                 time.sleep(2)
             except:
                 pass
+
 
             # 👇 ab tumhara scraping logic continue karo
 
