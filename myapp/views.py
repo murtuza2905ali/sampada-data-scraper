@@ -1,21 +1,17 @@
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
-import undetected_chromedriver as uc
+from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from PIL import Image
 import pytesseract
 import time
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
 import base64
 import pandas as pd
 from io import BytesIO
 import traceback
-import tempfile
-
 
 @csrf_exempt
 def trigger_scrape(request):
@@ -31,24 +27,14 @@ def trigger_scrape(request):
             })
 
         try:
-            options = uc.ChromeOptions()
-            options.binary_location = "/usr/bin/google-chrome"  # Explicit Chrome binary path
-            options.add_argument("--headless=new")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--single-process")
-            options.add_argument("--disable-software-rasterizer")
-            options.add_argument("--disable-extensions")
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_argument("--window-size=1920,1080")
-            options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
-
-            driver = uc.Chrome(options=options, driver_executable_path="/usr/local/bin/chromedriver")
+            options = Options()
+            options.add_argument("--start-maximized")
+            driver = webdriver.Chrome(options=options)
 
             driver.get("https://sampada.mpigr.gov.in/#/clogin")
-            WebDriverWait(driver, 20).until(
-                EC.presence_of_element_located((By.ID, "username"))
+            time.sleep(10)
+
+            
             try:
                 lang_switch = driver.find_element(By.XPATH, "//a[contains(text(), 'English')]")
                 lang_switch.click()
@@ -59,71 +45,8 @@ def trigger_scrape(request):
             except:
                 pass
 
-            success = False  # ✅ properly initialized
-
-            for attempt in range(20):
-                try:
-                    print(f"🔁 Attempt {attempt + 1}")
-
-                    # Fill username & password
-                    driver.find_element(By.ID, "username").clear()
-                    driver.find_element(By.ID, "username").send_keys(username)
-                    driver.find_element(By.ID, "password").clear()
-                    driver.find_element(By.ID, "password").send_keys(password)
-
-                    # Solve captcha
-                    captcha_img = driver.find_element(By.XPATH, "//img[contains(@src, 'data:image')]").get_attribute("src")
-                    base64_img = captcha_img.split(",")[1]
-                    image_bytes = base64.b64decode(base64_img)
-                    image = Image.open(BytesIO(image_bytes))
-
-                    captcha_text = pytesseract.image_to_string(
-                        image,
-                        config='--psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-                    ).strip().replace(" ", "")
-                    print(" CAPTCHA Text:", captcha_text)
-
-                    captcha_input = driver.find_element(By.ID, "captchaStr")
-                    captcha_input.clear()
-                    captcha_input.send_keys(captcha_text)
-
-                    driver.find_element(By.XPATH, "//button[.//span[text()='Login']]").click()
-
-                    # Wait until login completes
-                    WebDriverWait(driver, 20).until(
-                        EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Search/Certified Copy')]"))
-                    )
-
-                    print("✅ Login successful!")
-                    success = True
-                    break
-
-                except Exception as e:
-                    print(" Error in attempt:", e)
-                    traceback.print_exc()
-                    continue
-
-            if success:
-                # 👇 Yahan scraping logic continue kare
-                print("Proceeding with scraping...")
-
-                # TODO: Add scraping steps here
-
-                return render(request, "trigger_scrape.html", {
-                    "message": "✅ Login successful and scraping started!"
-                })
-            else:
-                return render(request, "trigger_scrape.html", {
-                    "message": "❌ Failed to login after multiple attempts."
-                })
-
-        except Exception as e:
-            return render(request, "trigger_scrape.html", {
-                "message": f"Error: {str(e)}",
-                "traceback": traceback.format_exc()
-            })
-
-    return render(request, "trigger_scrape.html")
+            
+            success = False
             for attempt in range(20):
                 try:
                     print(f"🔁 Attempt {attempt + 1}")
@@ -304,7 +227,7 @@ def trigger_scrape(request):
                             )
                             print(" Results loaded successfully.")
                             dropdown_xpath = "/html/body/app-root/div/app-layout/div/div/div/div/app-search-document/div[3]/div[2]/div[2]/div/fieldset[2]/div/div[2]/div/div[2]/div[2]/mat-paginator/div/div/div[1]/mat-form-field/div/div[1]/div/mat-select/div/div[2]"
-                            option_100_xpath = "/html/body/div[3]/div[2]/div/div/div/mat-option[2]/span"
+                            option_100_xpath = "/html/body/div[3]/div[2]/div/div/div/mat-option[1]/span"
 
                             dropdown = WebDriverWait(driver, 30).until(
                                 EC.element_to_be_clickable((By.XPATH, dropdown_xpath))
@@ -317,7 +240,7 @@ def trigger_scrape(request):
                                 EC.element_to_be_clickable((By.XPATH, option_100_xpath))
                             )
                             driver.execute_script("arguments[0].click();", option_100)
-                            print(" Selected '20' from dropdown.")
+                            print(" Selected '10' from dropdown.")
 
                             try:
                                 WebDriverWait(driver, 30).until(
