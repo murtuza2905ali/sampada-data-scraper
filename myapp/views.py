@@ -7,6 +7,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from PIL import Image
 import pytesseract
 import time
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 import base64
 import pandas as pd
 from io import BytesIO
@@ -29,22 +32,23 @@ def trigger_scrape(request):
 
         try:
             options = uc.ChromeOptions()
+            options.binary_location = "/usr/bin/google-chrome"  # Explicit Chrome binary path
             options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
+            options.add_argument("--single-process")
             options.add_argument("--disable-software-rasterizer")
+            options.add_argument("--disable-extensions")
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--window-size=1920,1080")
             options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
 
-            driver = uc.Chrome(options=options)
+            driver = uc.Chrome(options=options, driver_executable_path="/usr/local/bin/chromedriver")
 
             driver.get("https://sampada.mpigr.gov.in/#/clogin")
             WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.ID, "username"))
-            )
-
             try:
                 lang_switch = driver.find_element(By.XPATH, "//a[contains(text(), 'English')]")
                 lang_switch.click()
