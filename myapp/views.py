@@ -12,6 +12,7 @@ import base64
 import pandas as pd
 from io import BytesIO
 import traceback
+import tempfile
 
 
 @csrf_exempt
@@ -30,13 +31,17 @@ def trigger_scrape(request):
         try:
             options = Options()
             # ✅ Render-compatible Chrome options
-            options.add_argument("--headless")  
+            options.add_argument("--headless=new")  
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
+            options.add_argument("--disable-software-rasterizer")
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--remote-debugging-port=9222")
             options.add_argument("--window-size=1920,1080")
+            
+            # ✅ unique Chrome profile for every request to avoid session conflict
+            options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
 
             driver = webdriver.Chrome(options=options)
 
