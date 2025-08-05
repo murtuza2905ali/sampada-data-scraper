@@ -227,7 +227,7 @@ def trigger_scrape(request):
                             )
                             print(" Results loaded successfully.")
                             dropdown_xpath = "/html/body/app-root/div/app-layout/div/div/div/div/app-search-document/div[3]/div[2]/div[2]/div/fieldset[2]/div/div[2]/div/div[2]/div[2]/mat-paginator/div/div/div[1]/mat-form-field/div/div[1]/div/mat-select/div/div[2]"
-                            option_100_xpath = "/html/body/div[3]/div[2]/div/div/div/mat-option[4]/span"
+                            option_100_xpath = "/html/body/div[3]/div[2]/div/div/div/mat-option[2]/span"
 
                             dropdown = WebDriverWait(driver, 30).until(
                                 EC.element_to_be_clickable((By.XPATH, dropdown_xpath))
@@ -240,7 +240,7 @@ def trigger_scrape(request):
                                 EC.element_to_be_clickable((By.XPATH, option_100_xpath))
                             )
                             driver.execute_script("arguments[0].click();", option_100)
-                            print(" Selected '100' from dropdown.")
+                            print(" Selected '20' from dropdown.")
 
                             try:
                                 WebDriverWait(driver, 30).until(
