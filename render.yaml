@@ -1,7 +1,6 @@
 services:
   - type: web
     name: sampada-data-scraper
-    env: python
+    env: docker
     plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn myproject.wsgi:application --timeout 120 --workers 2"
+    dockerfilePath: ./Dockerfile
