@@ -13,6 +13,7 @@ import pandas as pd
 from io import BytesIO
 import traceback
 
+
 @csrf_exempt
 def trigger_scrape(request):
     if request.method == "POST":
@@ -28,13 +29,22 @@ def trigger_scrape(request):
 
         try:
             options = Options()
-            options.add_argument("--start-maximized")
+            # ✅ Render-compatible Chrome options
+            options.add_argument("--headless")  
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_argument("--remote-debugging-port=9222")
+            options.add_argument("--window-size=1920,1080")
+
             driver = webdriver.Chrome(options=options)
 
             driver.get("https://sampada.mpigr.gov.in/#/clogin")
-            time.sleep(10)
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.ID, "username"))
+            )
 
-            
             try:
                 lang_switch = driver.find_element(By.XPATH, "//a[contains(text(), 'English')]")
                 lang_switch.click()
@@ -44,6 +54,14 @@ def trigger_scrape(request):
                 time.sleep(2)
             except:
                 pass
+
+            # 👇 ab tumhara scraping logic continue karo
+
+        except Exception as e:
+            return render(request, "trigger_scrape.html", {
+                "message": f"Error occurred: {str(e)}",
+                "trace": traceback.format_exc()
+            })
 
             
             success = False
