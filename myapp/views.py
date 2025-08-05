@@ -12,6 +12,8 @@ import pandas as pd
 from io import BytesIO
 import traceback
 import tempfile
+import shutil
+import os
 
 
 @csrf_exempt
@@ -29,7 +31,9 @@ def trigger_scrape(request):
 
         try:
             options = uc.ChromeOptions()
+
             # ✅ Render-safe Chrome options
+            options.binary_location = shutil.which("chromium") or "/usr/bin/chromium"
             options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
@@ -37,12 +41,12 @@ def trigger_scrape(request):
             options.add_argument("--disable-software-rasterizer")
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--window-size=1920,1080")
-            
+
             # ✅ unique Chrome profile for every request
             options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
 
             # ✅ Launch Chrome with undetected_chromedriver
-            driver = uc.Chrome(options=options, headless=True)
+            driver = uc.Chrome(options=options)
 
             driver.get("https://sampada.mpigr.gov.in/#/clogin")
             WebDriverWait(driver, 20).until(
@@ -67,20 +71,10 @@ def trigger_scrape(request):
 
         except Exception as e:
             return render(request, "trigger_scrape.html", {
-                "message": f"Error: {str(e)}\n{traceback.format_exc()}"
+                "message": f"Error: {str(e)}",
+                "traceback": traceback.format_exc()
             })
 
-
-            # 👇 ab tumhara scraping logic continue karo
-
-        except Exception as e:
-            return render(request, "trigger_scrape.html", {
-                "message": f"Error occurred: {str(e)}",
-                "trace": traceback.format_exc()
-            })
-
-            
-            success = False
             for attempt in range(20):
                 try:
                     print(f"🔁 Attempt {attempt + 1}")
