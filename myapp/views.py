@@ -1,8 +1,7 @@
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
-from selenium import webdriver
+import undetected_chromedriver as uc   # ✅ instead of normal selenium driver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from PIL import Image
@@ -13,7 +12,6 @@ import pandas as pd
 from io import BytesIO
 import traceback
 import tempfile
-import os   # ✅ Added for environment variable support
 
 
 @csrf_exempt
@@ -30,28 +28,21 @@ def trigger_scrape(request):
             })
 
         try:
-            options = Options()
-            # ✅ Render-compatible Chrome options
-            options.add_argument("--headless=new")  
+            options = uc.ChromeOptions()
+            # ✅ Render-safe Chrome options
+            options.add_argument("--headless=new")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
             options.add_argument("--disable-software-rasterizer")
             options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_argument("--remote-debugging-port=9222")
             options.add_argument("--window-size=1920,1080")
             
-            # ✅ unique Chrome profile for every request to avoid session conflict
+            # ✅ unique Chrome profile for every request
             options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
 
-            # ✅ Force Chrome binary path (Render build script sets this env var)
-            chrome_bin = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/google-chrome")
-            options.binary_location = chrome_bin
-
-            # ✅ Set Chromedriver path (Render build script installs this)
-            driver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-
-            driver = webdriver.Chrome(executable_path=driver_path, options=options)
+            # ✅ Launch Chrome with undetected_chromedriver
+            driver = uc.Chrome(options=options)
 
             driver.get("https://sampada.mpigr.gov.in/#/clogin")
             WebDriverWait(driver, 20).until(
@@ -67,7 +58,6 @@ def trigger_scrape(request):
                 time.sleep(2)
             except:
                 pass
-
 
             # 👇 ab tumhara scraping logic continue karo
 
