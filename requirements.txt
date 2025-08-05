@@ -1,4 +1,9 @@
+Django
+gunicorn
+dj-database-url
 selenium
+pillow
+pytesseract
 pandas
 openpyxl
-playwright
+whitenoise
