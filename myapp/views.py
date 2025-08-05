@@ -1,10 +1,12 @@
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+
 from PIL import Image
 import pytesseract
 import time
@@ -12,78 +14,104 @@ import base64
 import pandas as pd
 from io import BytesIO
 import traceback
+import os
 
 @csrf_exempt
 def trigger_scrape(request):
+    message = ""
     if request.method == "POST":
-        username = request.POST.get("userName")
-        password = request.POST.get("password")
-        district = request.POST.get("district")
-        deed_type = request.POST.get("deed_type")
+        username   = request.POST.get("userName")
+        password   = request.POST.get("password")
+        district   = request.POST.get("district")
+        deed_type  = request.POST.get("deed_type")
 
         if not all([username, password, district, deed_type]):
             return render(request, "trigger_scrape.html", {
                 "message": "Please fill all required fields."
             })
 
+        # ─── Chrome / Chromedriver Configuration ───────────────────────────────
+        chrome_options = Options()
+        chrome_options.headless = True
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
+
+        # Allow override via ENV; fallback to common Linux paths in Docker
+        chrome_bin = os.getenv("CHROME_BINARY", "/usr/bin/google-chrome-stable")
+        driver_bin = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+        chrome_options.binary_location = chrome_bin
+
+        driver = None
         try:
-            options = Options()
-            options.add_argument("--start-maximized")
-            driver = webdriver.Chrome(options=options)
+            driver = webdriver.Chrome(
+                executable_path=driver_bin,
+                options=chrome_options
+            )
 
             driver.get("https://sampada.mpigr.gov.in/#/clogin")
-            time.sleep(10)
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.ID, "username"))
+            )
 
-            
+            # ─── Language Switch (if present) ───────────────────────────────────
             try:
                 lang_switch = driver.find_element(By.XPATH, "//a[contains(text(), 'English')]")
                 lang_switch.click()
                 WebDriverWait(driver, 10).until(
                     EC.presence_of_element_located((By.ID, "username"))
                 )
-                time.sleep(2)
-            except:
+            except Exception:
                 pass
 
-            
+            # ─── LOGIN LOOP with CAPTCHA OCR ────────────────────────────────────
             success = False
-            for attempt in range(20):
+            for attempt in range(1, 21):
                 try:
-                    print(f"🔁 Attempt {attempt + 1}")
+                    print(f"🔁 Attempt {attempt}")
+                    # Refresh CAPTCHA if possible
                     try:
-                        refresh_btn = driver.find_element(By.XPATH, "//img[contains(@src, 'refresh_image')]")
+                        refresh_btn = driver.find_element(
+                            By.XPATH, "//img[contains(@src, 'refresh_image')]"
+                        )
                         driver.execute_script("arguments[0].click();", refresh_btn)
-                        time.sleep(1.5)
-                    except Exception as e:
-                        print(" CAPTCHA refresh button not found:", e)
+                        time.sleep(1)
+                    except Exception:
+                        pass
 
+                    # Enter credentials
                     driver.find_element(By.ID, "username").clear()
                     driver.find_element(By.ID, "username").send_keys(username)
                     driver.find_element(By.ID, "password").clear()
                     driver.find_element(By.ID, "password").send_keys(password)
 
-                    captcha_img = driver.find_element(By.XPATH, "//img[contains(@src, 'data:image')]").get_attribute("src")
-                    base64_img = captcha_img.split(",")[1]
-                    image_bytes = base64.b64decode(base64_img)
-                    image = Image.open(BytesIO(image_bytes))
+                    # Extract and OCR the CAPTCHA
+                    raw_src = driver.find_element(
+                        By.XPATH, "//img[contains(@src, 'data:image')]"
+                    ).get_attribute("src")
+                    img_data = base64.b64decode(raw_src.split(",")[1])
+                    img = Image.open(BytesIO(img_data))
 
-                    pytesseract.pytesseract.tesseract_cmd = r"C:\\\\Program Files\\\\Tesseract-OCR\\\\tesseract.exe"
+                    # Use system tesseract
                     captcha_text = pytesseract.image_to_string(
-                        image,
+                        img,
                         config='--psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
                     ).strip().replace(" ", "")
                     print(" CAPTCHA Text:", captcha_text)
 
-                    captcha_input = driver.find_element(By.ID, "captchaStr")
-                    driver.execute_script("arguments[0].value = '';", captcha_input)
-                    captcha_input.send_keys(captcha_text)
+                    # Fill and submit
+                    cap_input = driver.find_element(By.ID, "captchaStr")
+                    driver.execute_script("arguments[0].value = '';", cap_input)
+                    cap_input.send_keys(captcha_text)
+                    driver.find_element(
+                        By.XPATH, "//button[.//span[text()='Login']]"
+                    ).click()
 
-                    driver.find_element(By.XPATH, "//button[.//span[text()='Login']]").click()
-
-                    WebDriverWait(driver, 180).until(
-                        EC.invisibility_of_element_located((By.XPATH, "//div[contains(text(), 'Please Wait')]"))
+                    # Wait for login to complete
+                    WebDriverWait(driver, 180).until_not(
+                        EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Please Wait')]"))
                     )
-
                     WebDriverWait(driver, 20).until(
                         EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Search/Certified Copy')]"))
                     )
@@ -95,247 +123,174 @@ def trigger_scrape(request):
                 except Exception as e:
                     print(" Error in attempt:", e)
                     traceback.print_exc()
-
-            if success:
-                try:
-                    WebDriverWait(driver, 20).until(
-                        EC.presence_of_element_located((By.XPATH, "//a[contains(text(), 'Dashboard')]"))
-                    )
-
-                    
-                    for _ in range(3):
-                        try:
-                            search_link = WebDriverWait(driver, 15).until(
-                                EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Search/Certified Copy')]"))
-                            )
-                            search_link.click()
-                            print("Clicked 'Search/Certified Copy'")
-                            break
-                        except:
-                            time.sleep(2)
-
-                    
-                    other_radio = WebDriverWait(driver, 10).until(
-                        EC.element_to_be_clickable((By.ID, "P2000_SEARCH_DOC_TYPE_1"))
-                    )
-                    driver.execute_script("arguments[0].click();", other_radio)
-                    time.sleep(1)
-
-                    
-                    driver.find_element(By.ID, "P2000_DISTRICT").click()
-                    driver.find_element(By.XPATH, f"//option[contains(text(), '{district}')]").click()
-                    time.sleep(1)
-
-                    
-                    driver.find_element(By.ID, "CurrentFinancialYear1").click()
-                    time.sleep(1)
-
-                    
-                    deed_input = WebDriverWait(driver, 10).until(
-                        EC.element_to_be_clickable((By.XPATH, "//input[@aria-autocomplete='list']"))
-                    )
-                    deed_input.clear()
-                    deed_input.send_keys(deed_type)
                     time.sleep(2)
 
-                    conveyance_option = WebDriverWait(driver, 10).until(
-                        EC.element_to_be_clickable((By.XPATH, "//span[normalize-space(text())='Conveyance']"))
+            if not success:
+                message = "Login failed after multiple attempts."
+                return render(request, "trigger_scrape.html", {"message": message})
+
+            # ─── NAVIGATE to Search/Certified Copy ─────────────────────────────
+            WebDriverWait(driver, 20).until(
+                EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Search/Certified Copy')]"))
+            ).click()
+
+            # Select “Other” doc type
+            other_radio = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "P2000_SEARCH_DOC_TYPE_1"))
+            )
+            driver.execute_script("arguments[0].click();", other_radio)
+            time.sleep(1)
+
+            # Select District & Financial Year
+            driver.find_element(By.ID, "P2000_DISTRICT").click()
+            driver.find_element(By.XPATH, f"//option[contains(text(), '{district}')]").click()
+            time.sleep(1)
+            driver.find_element(By.ID, "CurrentFinancialYear1").click()
+            time.sleep(1)
+
+            # Enter Deed Type
+            deed_input = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//input[@aria-autocomplete='list']"))
+            )
+            deed_input.clear()
+            deed_input.send_keys(deed_type)
+            time.sleep(2)
+            conveyance_option = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//span[normalize-space(text())='Conveyance']"))
+            )
+            driver.execute_script("arguments[0].click();", conveyance_option)
+            time.sleep(0.5)
+
+            # ─── SEARCH LOOP with Second CAPTCHA & Results ────────────────────
+            all_data = []
+            while True:
+                try:
+                    # Solve second CAPTCHA
+                    cap_input2 = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.NAME, "captchaStr"))
                     )
-                    driver.execute_script("arguments[0].click();", conveyance_option)
-                    time.sleep(0.5)
+                    cap_img_elem = driver.find_element(
+                        By.XPATH, "//img[contains(@src,'data:image/png;base64')]"
+                    )
+                    img2 = Image.open(BytesIO(
+                        base64.b64decode(cap_img_elem.get_attribute("src").split(",")[1])
+                    ))
+                    txt2 = pytesseract.image_to_string(
+                        img2,
+                        config='--psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+                    ).strip().replace(" ", "")
+                    print(" CAPTCHA Text:", txt2)
 
-                    
-                    while True:
+                    if len(txt2) < 4:
+                        # Refresh if too short
                         try:
-                            captcha_input = WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.NAME, "captchaStr"))
-                            )
-                            captcha_img_elem = WebDriverWait(driver, 10).until(
-                                EC.presence_of_element_located((By.XPATH, "//img[contains(@src,'data:image/png;base64')]"))
-                            )
-                            captcha_src = captcha_img_elem.get_attribute("src")
-                            captcha_base64 = captcha_src.split(",")[1]
-                            captcha_image = Image.open(BytesIO(base64.b64decode(captcha_base64)))
+                            driver.find_element(
+                                By.XPATH, "//img[contains(@src, 'refresh_image.png')]"
+                            ).click()
+                        except Exception:
+                            pass
+                        time.sleep(2)
+                        continue
 
-                            captcha_text = pytesseract.image_to_string(
-                                captcha_image,
-                                config='--psm 8 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-                            ).strip().replace(" ", "").replace("\\n", "")
-                            print(" CAPTCHA Text:", captcha_text)
+                    # Submit the search
+                    driver.execute_script("""
+                        arguments[0].value = arguments[1];
+                        arguments[0].dispatchEvent(new Event('input',{ bubbles:true }));
+                    """, cap_input2, txt2)
+                    driver.find_element(
+                        By.XPATH, "//button[contains(., 'Search')]"
+                    ).click()
+                    print(" Search button clicked.")
+                    time.sleep(5)
 
-                            if len(captcha_text) < 4:
-                                print(" CAPTCHA too short, refreshing...")
-                                try:
-                                    refresh_img = WebDriverWait(driver, 5).until(
-                                        EC.presence_of_element_located((By.XPATH, "//img[contains(@src, 'refresh_image.png')]"))
-                                    )
-                                    driver.execute_script("arguments[0].click();", refresh_img)
-                                except Exception as e:
-                                    print(" Failed to refresh CAPTCHA:", str(e))
-                                time.sleep(2)
-                                continue
-
-                            driver.execute_script("""
-                                const input = arguments[0];
-                                input.focus();
-                                input.value = arguments[1];
-                                input.dispatchEvent(new Event('input', { bubbles: true }));
-                            """, captcha_input, captcha_text)
-
-                            search_button = WebDriverWait(driver, 10).until(
-                                EC.element_to_be_clickable((By.XPATH, "/html/body/app-root/div/app-layout/div/div/div/div/app-search-document/div[3]/div[2]/div[2]/div/fieldset/div[4]/div[2]/div/button[1]"))
-                            )
-                            driver.execute_script("arguments[0].click();", search_button)
-                            print(" Search button clicked.")
-                            time.sleep(10)
-
-                            
-                            try:
-                                alert_msg_elem = WebDriverWait(driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'swal2-html-container')]"))
-                                )
-                                alert_text = alert_msg_elem.text.strip()
-                                alert_ok_btn = WebDriverWait(driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, "//button[contains(@class, 'swal2-confirm')]"))
-                                )
-                                if "Captcha mismatched" in alert_text:
-                                    print(" CAPTCHA mismatched! Retrying...")
-                                    driver.execute_script("arguments[0].click();", alert_ok_btn)
-                                    time.sleep(5)
-                                    refresh_img = WebDriverWait(driver, 5).until(
-                                        EC.presence_of_element_located((By.XPATH, "//img[contains(@src, 'refresh_image.png')]"))
-                                    )
-                                    driver.execute_script("arguments[0].click();", refresh_img)
-                                    time.sleep(5)
-                                    continue
-                                elif "No Data Found" in alert_text:
-                                    print(" No Data Found.")
-                                    driver.execute_script("arguments[0].click();", alert_ok_btn)
-                                    time.sleep(5)
-                                    break
-                                else:
-                                    print("⚠️ Unknown alert:", alert_text)
-                                    driver.execute_script("arguments[0].click();", alert_ok_btn)
-                                    time.sleep(5)
-                                    continue
-                            except Exception:
-                                print("No alert detected.")
-
-                            
-                            WebDriverWait(driver, 40).until(
-                                EC.presence_of_element_located((By.XPATH, "//mat-paginator"))
-                            )
-                            print(" Results loaded successfully.")
-                            dropdown_xpath = "/html/body/app-root/div/app-layout/div/div/div/div/app-search-document/div[3]/div[2]/div[2]/div/fieldset[2]/div/div[2]/div/div[2]/div[2]/mat-paginator/div/div/div[1]/mat-form-field/div/div[1]/div/mat-select/div/div[2]"
-                            option_100_xpath = "/html/body/div[3]/div[2]/div/div/div/mat-option[1]/span"
-
-                            dropdown = WebDriverWait(driver, 30).until(
-                                EC.element_to_be_clickable((By.XPATH, dropdown_xpath))
-                            )
-                            driver.execute_script("arguments[0].click();", dropdown)
-                            print(" Dropdown clicked.")
-                            time.sleep(10)
-
-                            option_100 = WebDriverWait(driver, 20).until(
-                                EC.element_to_be_clickable((By.XPATH, option_100_xpath))
-                            )
-                            driver.execute_script("arguments[0].click();", option_100)
-                            print(" Selected '10' from dropdown.")
-
-                            try:
-                                WebDriverWait(driver, 30).until(
-                                    EC.invisibility_of_element_located((By.CSS_SELECTOR, "div.ngx-overlay.loading-foreground"))
-                                )
-
-                                first_doc = WebDriverWait(driver, 15).until(
-                                    EC.element_to_be_clickable((By.XPATH, "//span[contains(@class,'link') and contains(text(),'MP50IGR')]"))
-                                )
-                                first_doc.click()
-                                print(" First document link clicked.")
-                                WebDriverWait(driver, 10).until(
-                                    EC.visibility_of_element_located((By.XPATH, "//legend[contains(text(),'Registration Details')]"))
-                                )
-                                print(" Registration Details section loaded.")
-
-                                time.sleep(5)
-                                close_button = WebDriverWait(driver, 5).until(
-                                    EC.element_to_be_clickable((By.XPATH, "/html/body/ngb-modal-window/div/div/button[2]/span"))
-                                )
-                                close_button.click()
-                                print(" Closed for ")
-
-                            except Exception as e:
-                                print(" Failed to click document link:", e)
-
-                            all_data = []
-                            try:
-                                rows = WebDriverWait(driver, 10).until(
-                                    EC.presence_of_all_elements_located((By.XPATH, "//table/tbody/tr/td[2]/span[contains(@class, 'link')]"))
-                                )
-                                print(f"🔍 Found {len(rows)} document rows")
-
-                                for index in range(len(rows)):
-                                    try:
-                                        rows = driver.find_elements(By.XPATH, "//table/tbody/tr/td[2]/span[contains(@class, 'link')]")
-                                        driver.execute_script("arguments[0].scrollIntoView(true);", rows[index])
-                                        time.sleep(1)
-                                        rows[index].click()
-                                        print(f" Clicked row {index + 1}")
-                                        WebDriverWait(driver, 10).until(
-                                            EC.visibility_of_element_located((By.XPATH, "//legend[contains(text(),'Registration Details')]"))
-                                        )
-                                        print(" Registration Details section loaded.")
-                                        WebDriverWait(driver, 10).until(
-                                            EC.presence_of_element_located((By.XPATH, "//legend[contains(text(),'Party To')]/following::table[1]/tbody/tr"))
-                                        )
-                                        data = {
-                                            "Registration No": driver.find_element(By.XPATH, "/html/body/ngb-modal-window/div/div/div/fieldset[1]/div/table/tbody/tr/td[1]").text,
-                                            "Registration Date": driver.find_element(By.XPATH, "/html/body/ngb-modal-window/div/div/div/fieldset[1]/div/table/tbody/tr/td[2]").text,
-                                            "Deed Type": driver.find_element(By.XPATH, "/html/body/ngb-modal-window/div/div/div/fieldset[1]/div/table/tbody/tr/td[3]").text,
-                                            "Party From Name": driver.find_element(By.XPATH, "/html/body/ngb-modal-window/div/div/div/fieldset[2]/div/div/div[1]/fieldset/div/table/tbody[1]/tr/td[1]").text,
-                                            "Party From Guardian": driver.find_element(By.XPATH, "/html/body/ngb-modal-window/div/div/div/fieldset[2]/div/div/div[1]/fieldset/div/table/tbody[1]/tr/td[2]").text,
-                                            "Party From Type": driver.find_element(By.XPATH, "/html/body/ngb-modal-window/div/div/div/fieldset[2]/div/div/div[1]/fieldset/div/table/tbody[1]/tr/td[3]").text,
-                                            "Party To Name": driver.find_element(By.XPATH, "//legend[contains(text(),'Party To')]/following::table[1]/tbody/tr/td[1]").text,
-                                            "Party To Guardian": driver.find_element(By.XPATH, "//legend[contains(text(),'Party To')]/following::table[1]/tbody/tr/td[2]").text,
-                                            "Party To Type": driver.find_element(By.XPATH, "//legend[contains(text(),'Party To')]/following::table[1]/tbody/tr/td[3]").text,
-                                            "Districts": driver.find_element(By.XPATH, "//legend[contains(text(),'Property Details')]/following::table[1]/tbody/tr/td[1]").text,
-                                            "Tehsil": driver.find_element(By.XPATH, "//legend[contains(text(),'Property Details')]/following::table[1]/tbody/tr/td[2]").text,
-                                            "Type Of Area": driver.find_element(By.XPATH, "//legend[contains(text(),'Property Details')]/following::table[1]/tbody/tr/td[3]").text,
-                                            "Ward/Village Name": driver.find_element(By.XPATH, "//legend[contains(text(),'Property Details')]/following::table[1]/tbody/tr/td[4]").text,
-                                            "Property Type": driver.find_element(By.XPATH, "//legend[contains(text(),'Property Details')]/following::table[1]/tbody/tr/td[5]").text,
-                                            "Address": driver.find_element(By.XPATH, "//legend[contains(text(),'Property Details')]/following::table[1]/tbody/tr/td[6]").text,
-                                            "Property ID": driver.find_element(By.XPATH, "//legend[contains(text(),'Property Details')]/following::table[1]/tbody/tr/td[7]").text,
-                                            "Khasra No": driver.find_element(By.XPATH, "//legend[contains(text(),'Property Details')]/following::table[1]/tbody/tr/td[8]").text,
-                                            "House/Flat No./Plot No.": driver.find_element(By.XPATH, "//legend[contains(text(),'Property Details')]/following::table[1]/tbody/tr/td[9]").text
-                                        }
-                                        all_data.append(data)
-                                        close_button = WebDriverWait(driver, 5).until(
-                                            EC.element_to_be_clickable((By.XPATH, "/html/body/ngb-modal-window/div/div/button[2]/span"))
-                                        )
-                                        close_button.click()
-                                        print(f"Closed for row {index + 1}")
-                                        time.sleep(2)
-                                    except Exception as e:
-                                        print(f" Error processing row {index + 1}:", str(e))
-                                        continue
-                                df = pd.DataFrame(all_data)
-                                df.to_excel("Sampada_Data_by_Murtuza_Ali.xlsx", index=False)
-                                print(" Data saved to 'Sampada_Data_by_Murtuza_Ali'")
-                                print(" Quitting...")
-                                break
-                            except Exception as e:
-                                print(" Error inside search loop:", str(e))
-                                break 
-                        except Exception as e:
-                            print(" General Error:", str(e))
+                    # Handle alerts
+                    try:
+                        alert = WebDriverWait(driver, 5).until(
+                            EC.presence_of_element_located((By.CLASS_NAME, "swal2-html-container"))
+                        )
+                        text = alert.text.strip()
+                        driver.find_element(By.CLASS_NAME, "swal2-confirm").click()
+                        if "Captcha mismatched" in text:
+                            print(" CAPTCHA mismatched, retry.")
+                            time.sleep(2)
+                            continue
+                        if "No Data Found" in text:
+                            print(" No Data Found, ending.")
                             break
+                    except Exception:
+                        pass
+
+                    # Wait for paginator, set 100 per page
+                    WebDriverWait(driver, 40).until(
+                        EC.presence_of_element_located((By.XPATH, "//mat-paginator"))
+                    )
+                    dropdown = driver.find_element(
+                        By.XPATH,
+                        "//mat-paginator//mat-select//div[contains(@class,'mat-select-arrow-wrapper')]"
+                    )
+                    driver.execute_script("arguments[0].click();", dropdown)
+                    WebDriverWait(driver, 10).until(
+                        EC.element_to_be_clickable((By.XPATH, "//mat-option//span[text()='100']"))
+                    ).click()
+                    time.sleep(2)
+
+                    # Collect rows
+                    rows = driver.find_elements(
+                        By.XPATH, "//table/tbody/tr/td[2]//span[contains(@class,'link')]"
+                    )
+                    print(f"🔍 Found {len(rows)} document rows")
+                    for idx, row in enumerate(rows):
+                        try:
+                            driver.execute_script("arguments[0].scrollIntoView();", row)
+                            time.sleep(1)
+                            row.click()
+                            WebDriverWait(driver, 10).until(
+                                EC.visibility_of_element_located((By.XPATH, "//legend[contains(text(),'Registration Details')]"))
+                            )
+
+                            # Extract details (add more fields here if desired)
+                            data = {
+                                "Registration No": driver.find_element(
+                                    By.XPATH, "(//fieldset)[1]//td[1]"
+                                ).text,
+                                "Registration Date": driver.find_element(
+                                    By.XPATH, "(//fieldset)[1]//td[2]"
+                                ).text,
+                                "Deed Type": driver.find_element(
+                                    By.XPATH, "(//fieldset)[1]//td[3]"
+                                ).text,
+                            }
+                            all_data.append(data)
+
+                            # Close modal
+                            driver.find_element(
+                                By.XPATH, "//ngb-modal-window//button[contains(@class,'close')]"
+                            ).click()
+                            time.sleep(0.5)
+                        except Exception as e:
+                            print(f" Error processing row {idx+1}:", e)
+                            continue
+
+                    break  # remove this if you want to paginate further
+
                 except Exception as e:
-                    print(" Post-login error:", str(e))
-                    traceback.print_exc()
+                    print(" General Error in search loop:", e)
+                    break
+
+            # ─── SAVE RESULTS ────────────────────────────────────────────────────
+            df = pd.DataFrame(all_data)
+            out_file = "/tmp/Sampada_Data_by_Murtuza_Ali.xlsx"
+            df.to_excel(out_file, index=False)
+            message = f"Scraping completed: {len(all_data)} records saved to {out_file}"
+
         except Exception as e:
-            print(" Outer exception:", str(e))
             traceback.print_exc()
+            message = f"Error during scraping: {e}"
+
+        finally:
+            if driver:
+                driver.quit()
 
     return render(request, "trigger_scrape.html", {
-        "message": " Scraping process completed (check console for logs)."
+        "message": message or "Scraping process completed."
     })
