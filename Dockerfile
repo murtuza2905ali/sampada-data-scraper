@@ -37,4 +37,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 ENV PYTHONUNBUFFERED=1
 
 # Gunicorn ke sath Django run karo
-CMD ["gunicorn", "myproject.wsgi:application", "--timeout", "120", "--workers", "2", "--bind", "0.0.0.0:10000"]
+CMD ["gunicorn", "sampada_scraper.wsgi:application", "--timeout", "120", "--workers", "2", "--bind", "0.0.0.0:10000"]
